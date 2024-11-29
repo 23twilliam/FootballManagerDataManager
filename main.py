@@ -11,12 +11,7 @@ from scipy import stats
 #df = pd.read_csv('T10GKs.csv')
 #df = pd.read_csv('T5DMs.csv')
 #df = pd.read_csv('T10CBs.csv')
-df = pd.read_csv('AttackingMidfielders.csv')
-df.fillna(0, inplace=True)
-# -----
-# This code snippet excludes players that are "Not for Sale"
-mask = df['Transfer Value'] == 'Not for Sale'
-df = df[~mask]
+
 
 
 # -----
@@ -54,21 +49,7 @@ def value_to_float(x):
     return 0.0
 
 
-df['Transfer Value'] = df['Transfer Value'].apply(value_to_float)
-df = df.sort_values(by=['Transfer Value'], ascending=False)
-valMax = int(input("What is the maximum value you would consider"))
-mask = df['Transfer Value'] > valMax
-df2 = df[~mask]
 
-df_obj = df.select_dtypes('object')
-df[df_obj.columns] = df_obj.apply(lambda x: x.str.strip('%'))
-df['Dist/90'] = df['Dist/90'].apply(lambda x: x.strip('km'))
-df['Dist/90'] = pd.to_numeric(df['Dist/90'], errors='coerce')
-df['Pas %'] = pd.to_numeric(df['Pas %'], errors='coerce')
-df['OPCr %'] = pd.to_numeric(df['OPCr %'], errors='coerce')
-#df['xSv %'] = pd.to_numeric(df['xSv %'], errors='coerce')
-#df['Sv %'] = pd.to_numeric(df['Sv %'], errors='coerce')
-df['Hdr %'] = pd.to_numeric(df['Hdr %'], errors='coerce')
 
 
 
@@ -523,6 +504,27 @@ def striker(df):
     avg.fillna(0, inplace=True)
     return avg
 
+fileLocation = str(input('Enter file location: '))
+
+df = pd.read_csv(fileLocation)
+df.fillna(0, inplace=True)
+# -----
+# This code snippet excludes players that are "Not for Sale"
+mask = df['Transfer Value'] == 'Not for Sale'
+df = df[~mask]
+df['Transfer Value'] = df['Transfer Value'].apply(value_to_float)
+df = df.sort_values(by=['Transfer Value'], ascending=False)
+
+
+df_obj = df.select_dtypes('object')
+df[df_obj.columns] = df_obj.apply(lambda x: x.str.strip('%'))
+df['Dist/90'] = df['Dist/90'].apply(lambda x: x.strip('km'))
+df['Dist/90'] = pd.to_numeric(df['Dist/90'], errors='coerce')
+df['Pas %'] = pd.to_numeric(df['Pas %'], errors='coerce')
+df['OPCr %'] = pd.to_numeric(df['OPCr %'], errors='coerce')
+#df['xSv %'] = pd.to_numeric(df['xSv %'], errors='coerce')
+#df['Sv %'] = pd.to_numeric(df['Sv %'], errors='coerce')
+df['Hdr %'] = pd.to_numeric(df['Hdr %'], errors='coerce')
 
 # mask df here and add df2 to input to functions
 position = int(input('Enter position: \n '
@@ -535,6 +537,11 @@ position = int(input('Enter position: \n '
                      '7. Attacking Midfielder \n '
                      '8. Winger \n '
                      '9. Striker \n '))
+
+valMax = int(input("What is the maximum value you would consider"))
+mask = df['Transfer Value'] > valMax
+df2 = df[~mask]
+
 match position:
     case 1:
         avg = keeper(df)
@@ -556,6 +563,7 @@ match position:
         avg = striker(df)
     case _:
         avg = None  # Default case if position doesn't match any
+
 avg.columns = ['avg']
 r = np.nanmean(avg)
 df2.loc[:, 'avg'] = avg.values
