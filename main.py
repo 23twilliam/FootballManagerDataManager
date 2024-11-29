@@ -525,7 +525,37 @@ def striker(df):
 
 
 # mask df here and add df2 to input to functions
-avg = attackingMidfielder(df)
+position = int(input('Enter position: \n '
+                     '1. Keeper \n '
+                     '2. Halfback \n '
+                     '3. Fullback \n '
+                     '4. Wingback \n '
+                     '5. Defensive Midfielder \n '
+                     '6. Midfielder \n '
+                     '7. Attacking Midfielder \n '
+                     '8. Winger \n '
+                     '9. Striker \n '))
+match position:
+    case 1:
+        avg = keeper(df)
+    case 2:
+        avg = defender(df)
+    case 3:
+        avg = fullback(df)
+    case 4:
+        avg = wingback(df)
+    case 5:
+        avg = defensiveMidfielder(df)
+    case 6:
+        avg = midfielder(df)
+    case 7:
+        avg = attackingMidfielder(df)
+    case 8:
+        avg = winger(df)
+    case 9:
+        avg = striker(df)
+    case _:
+        avg = None  # Default case if position doesn't match any
 avg.columns = ['avg']
 r = np.nanmean(avg)
 df2.loc[:, 'avg'] = avg.values
