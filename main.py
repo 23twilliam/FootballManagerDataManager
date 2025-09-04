@@ -3,7 +3,7 @@ from visualisation import plotter
 import analysis
 def main():
     #fileLocation = str(input('Enter file location: '))
-    fileLocation = "E:/Code/PycharmProjects/pythonProject/PlayerInfo/2044PlayerInfo.csv"
+    fileLocation = "E:/pythonProject/PlayerInfo/2044PlayerInfo.csv"
     position = int(input('Enter position: \n '
                          '1. Keeper \n '
                          '2. Halfback \n '
