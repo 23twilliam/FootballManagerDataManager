@@ -119,40 +119,125 @@ def _set_score_limits(ax, y, reference=None):
     ax.set_ylim(low - span * Y_PADDING, high + span * Y_PADDING)
 
 
-# Price bands used to trace what a given fee normally buys. Quantile-based, so
-# each band holds the same number of players however the prices are spread.
-PRICE_BANDS = 12
-MIN_PER_BAND = 8
+# Tracing what a given fee normally buys. A rolling median over players sorted
+# by price, rather than fixed bands: a band's point has to sit at the band's
+# median price, so a banded curve could never reach the cheapest or dearest
+# players and always stopped short at both ends.
+CURVE_POINTS = 60      # how many places along the price range to evaluate
+CURVE_WINDOW_FRAC = 8  # window holds 1/8 of the players
+MIN_WINDOW = 20        # ...but never fewer than this many
+MIN_FOR_CURVE = 60     # below this, a median curve is noise
+
+# Free transfers are a different population -- released players and expiring
+# contracts -- so their median ability says nothing about what a fee buys.
+# Rather than letting them kink the left-hand end, the curve is fitted over
+# priced players only and its gradient across this reference window is
+# extended down to zero. The window shrinks to fit if the data does not reach
+# that far.
+FREE_REF_LOW = 50_000
+FREE_REF_HIGH = 500_000
+MIN_FOR_EXTRAPOLATION = 15
+
+
+def _symlog(value, linthresh=VALUE_LINTHRESH):
+    """The axis's own coordinate: linear to `linthresh`, decades above it.
+
+    Extrapolating toward a price of zero has to happen in this space, not in
+    raw pounds or in log pounds -- log(0) is undefined, and a straight line in
+    pounds is a curve on screen.
+    """
+    value = np.asarray(value, dtype=float)
+    small = np.abs(value) <= linthresh
+    scaled = np.divide(np.abs(value), linthresh,
+                       out=np.ones_like(value), where=~small)
+    return np.where(small, value / linthresh,
+                    np.sign(value) * (1 + np.log10(scaled)))
+
+
+def _extrapolate_to_free(centres, medians):
+    """Value at a price of zero, read off the trend rather than measured.
+
+    Returns None when the reference window holds too little of the curve to
+    give a gradient worth trusting.
+    """
+    low, high = FREE_REF_LOW, min(FREE_REF_HIGH, centres.max())
+    if high <= low:
+        low, high = centres.min(), centres.max()
+    window = (centres >= low) & (centres <= high)
+    if window.sum() < 2:
+        return None
+
+    positions = _symlog(centres[window])
+    if np.ptp(positions) == 0:
+        return None
+    gradient, intercept = np.polyfit(positions, medians[window], 1)
+    return float(intercept + gradient * _symlog(0.0))
 
 
 def _draw_value_curve(ax, x, y):
     """Trace the median score at each price level. Returns True if drawn.
 
     A flat line at the population average is useless here: the plot only shows
-    the strongest half of the shortlist, so a whole-population reference sits
-    at or below the bottom of the cloud every time. What the chart is for is
+    the strongest half of the shortlist, so a whole-population reference sits at
+    or below the bottom of the cloud every time. What the chart is for is
     spotting players who beat their price, so the reference is what that price
     normally buys -- above the curve is good value, below it is not.
 
-    Medians per price band rather than a fitted line, because transfer values
-    span orders of magnitude and cluster hard at zero.
+    A rolling median over price-sorted players, evaluated at real data points
+    from the cheapest to the dearest, so the curve spans the whole axis
+    rather than stopping short of both ends.
     """
     finite = np.isfinite(x) & np.isfinite(y)
     x, y = x[finite], y[finite]
-    if len(x) < PRICE_BANDS * MIN_PER_BAND or np.ptp(x) == 0:
+    if len(x) < MIN_FOR_CURVE or np.ptp(x) == 0:
         return False
 
-    edges = np.unique(np.quantile(x, np.linspace(0, 1, PRICE_BANDS + 1)))
-    if len(edges) < 3:
-        return False
+    # Fit on priced players only; the free cluster is handled separately.
+    priced = x > 0
+    has_free = (~priced).any()
+    if priced.sum() >= MIN_FOR_CURVE and np.ptp(x[priced]) > 0:
+        x, y = x[priced], y[priced]
+    else:
+        has_free = False
+
+    order = np.argsort(x, kind='stable')
+    xs, ys = x[order], y[order]
+    count = len(xs)
+    window = max(MIN_WINDOW, count // CURVE_WINDOW_FRAC)
+
+    # Evaluate at ranks spanning 0..count-1 so both extremes are included.
+    ranks = np.unique(np.linspace(0, count - 1, CURVE_POINTS).astype(int))
+    half = window // 2
     centres, medians = [], []
-    for lo, hi in zip(edges[:-1], edges[1:]):
-        band = (x >= lo) & (x <= hi)
-        if band.sum() >= MIN_PER_BAND:
-            centres.append(np.median(x[band]))
-            medians.append(np.median(y[band]))
+    for rank in ranks:
+        # Shrink the window symmetrically at the edges rather than sliding it
+        # inward. Sliding leaves every point near an end sharing one window, so
+        # the curve flatlines over the cheapest and dearest players -- exactly
+        # where it needs to keep moving. Narrower means noisier out there, which
+        # is the honest trade.
+        reach = max(min(half, rank, count - 1 - rank), MIN_WINDOW // 2)
+        low, high = max(0, rank - reach), min(count, rank + reach + 1)
+        # Widen to cover every player sharing this price. Free transfers all
+        # sit at exactly zero and the sort orders those ties arbitrarily, so
+        # a window clipping through the cluster would take an arbitrary
+        # handful of them and spike the left-hand end of the curve.
+        low = min(low, int(np.searchsorted(xs, xs[rank], 'left')))
+        high = max(high, int(np.searchsorted(xs, xs[rank], 'right')))
+        centres.append(xs[rank])
+        medians.append(np.median(ys[low:high]))
+
+    # Collapse duplicate prices (a big cluster of free players) to one point.
+    centres, medians = np.asarray(centres), np.asarray(medians)
+    keep = np.concatenate(([True], np.diff(centres) > 0))
+    centres, medians = centres[keep], medians[keep]
     if len(centres) < 3:
         return False
+
+    if has_free and len(centres) >= MIN_FOR_EXTRAPOLATION:
+        free_value = _extrapolate_to_free(centres, medians)
+        if free_value is not None:
+            centres = np.concatenate(([0.0], centres))
+            medians = np.concatenate(([free_value], medians))
 
     ax.plot(centres, medians, color=FOREGROUND, linestyle='--',
             linewidth=1.4, alpha=0.85, zorder=4,

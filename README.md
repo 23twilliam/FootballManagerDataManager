@@ -133,12 +133,20 @@ when you group by the answer. See *Reading a prediction* below.
 Hover a point for a name; click for a percentile breakdown of the stats that
 most influenced the model.
 
-The dashed line is **what that fee normally buys** — the median predicted
-ability at each price level. Players above it beat their price; that is the
-whole point of the chart. A flat population-average line was useless here,
-because the plot only draws the strongest half of the shortlist, so a
-whole-population reference sat at or below the bottom of the cloud every
-time.
+The dashed line is **what that fee normally buys** — a rolling median of
+predicted ability across players sorted by price. Players above it beat their
+price; that is the whole point of the chart. A flat population-average line
+was useless here, because the plot only draws the strongest half of the
+shortlist, so a whole-population reference sat at or below the bottom of the
+cloud every time.
+
+Two details make it span the whole axis. The window **shrinks** at the ends
+rather than sliding inward, so the curve keeps moving over the cheapest and
+dearest players instead of flatlining. And the point at a price of zero is
+**extrapolated** from the gradient between £50K and £500K rather than measured:
+free transfers are released players and expiring contracts, a different
+population whose median ability says nothing about what a fee buys. The
+reference window shrinks to fit when a budget cap means prices never reach it.
 
 Transfer value is on a symlog axis. Values span five orders of magnitude and
 pile up at zero, so a linear axis crushed almost every player into the left
