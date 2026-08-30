@@ -1,3 +1,19 @@
+"""Column names and human-readable stat labels.
+
+`stats_dict` doubles as the list of columns preprocessing coerces to numeric,
+so a stat only needs adding here once.
+"""
+
+# Columns the pipeline depends on by name.
+VALUE_COL = 'Transfer Value'
+NAME_COL = 'Name'
+POINTS_COL = 'Pts/Gm'
+LEAGUE_COL = 'League'
+SCORE_COL = 'score'
+
+# Sentinel used by Football Manager exports for players who cannot be bought.
+NOT_FOR_SALE = 'Not for Sale'
+
 stats_dict = {'xGP/90': 'Expected Goals Prevented per 90',
               'Hdrs L/90': 'Headers Lost per 90',
               'Sv %': 'Save Percentage',
@@ -45,5 +61,14 @@ stats_dict = {'xGP/90': 'Expected Goals Prevented per 90',
               'K Tck/90': 'Key Tackles per 90',
               'Ch C/90': 'Chances Created per 90',
               'K Ps/90': 'Key Passes per 90',
-              'Asts/90': 'Assists per 90'
+              'Asts/90': 'Assists per 90',
+              'Pens Saved Ratio': 'Penalties Saved Ratio',
+              'SvRatio': 'Saves vs Expected Saves',
               }
+
+
+# Derived by preprocessing rather than read from the CSV.
+DERIVED_COLS = ('SvRatio',)
+
+# Everything preprocessing should coerce to numeric.
+NUMERIC_COLUMNS = tuple(c for c in stats_dict if c not in DERIVED_COLS) + (POINTS_COL,)

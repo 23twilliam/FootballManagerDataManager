@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Environments
+.venv/
+venv/
+
+# IDE
+.idea/
+
+# Save-game data and trained models: large, personal, and regenerable
+data/
+models/
+output.csv
