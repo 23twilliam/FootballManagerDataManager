@@ -1,0 +1,24 @@
+# Verified against Python 3.14.7 (C:\Python314\python.exe) -- the interpreter
+# the models in models/ were trained with. Floors are the versions actually in
+# use; the project has not been tested below them.
+#
+# Requires Python >= 3.12 (numpy 2.5 sets that floor; pandas needs 3.11).
+# Install with:  python -m pip install -r requirements.txt
+
+pandas>=3.0.5
+numpy>=2.5.2
+scipy>=1.18.1
+matplotlib>=3.11.1
+mplcursors>=0.7.1
+lxml>=6.1.2              # pandas.read_html parser; read_html fails without it
+joblib>=1.5.3
+
+# Pinned to the minor version on purpose. A model is a pickled scikit-learn
+# pipeline, and a pipeline saved by one minor release often cannot be used by
+# another: a 1.5.1 artefact loaded under 1.9.0 unpickles, then fails at predict
+# time with "'SimpleImputer' object has no attribute '_fill_dtype'". Changing
+# this line means retraining: python main.py train --all
+scikit-learn>=1.9.0,<1.10
+
+# Testing
+pytest>=9.1.1

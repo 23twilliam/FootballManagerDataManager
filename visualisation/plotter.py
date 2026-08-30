@@ -12,8 +12,10 @@ import mplcursors
 
 from config import NAME_COL, SCORE_COL, VALUE_COL
 from visualisation.percentile_chart import show_percentile_chart
-from visualisation.style import (ANNOTATION_EDGE, ANNOTATION_FACE, FOREGROUND,
-                                 SCORE_CMAP, new_dark_figure, plt)
+from matplotlib.ticker import FuncFormatter
+
+from visualisation.style import (ANNOTATION_EDGE, ANNOTATION_FACE, BACKGROUND,
+                                 FOREGROUND, SCORE_CMAP, new_dark_figure, plt)
 
 # How many players to draw. Plotting every row makes a dense CSV unreadable and
 # slow to render, so we show sqrt(n) * 25 -- growing with the dataset but
@@ -28,9 +30,15 @@ MARKER_SHRINK_PER_PLAYER = 1 / 100
 
 Y_PADDING = 0.05  # headroom above and below the plotted score range
 
+# Transfer values span five orders of magnitude and pile up at zero, so a
+# linear axis crushes almost every player into the left edge. symlog keeps a
+# linear stretch near zero -- free transfers are real and must stay visible --
+# and goes logarithmic above it.
+VALUE_LINTHRESH = 100_000
+
 
 def plot_shortlist(scored, df, title, chart_stats, reference=None,
-                   score_label='Score'):
+                   score_label='Score', reference_label='median'):
     """Plot the top of `scored`; clicking a point opens its breakdown.
 
     scored:      DataFrame carrying SCORE_COL, NAME_COL and VALUE_COL.
@@ -53,17 +61,40 @@ def plot_shortlist(scored, df, title, chart_stats, reference=None,
     colours = plt.get_cmap(SCORE_CMAP)(plt.Normalize(y.min(), y.max())(y))
     scatter = ax.scatter(x, y, s=_marker_size(len(shown)), c=colours, marker='.')
 
+    _scale_value_axis(ax, x)
     ax.set_xlabel('Transfer Value')
     ax.set_ylabel(score_label)
     ax.set_title(title, color=FOREGROUND)
     _set_score_limits(ax, y, reference)
-    _draw_reference_line(ax, reference)
+    if not _draw_value_curve(ax, x, y):
+        # Not enough price variation to fit a curve; fall back to a flat line
+        # through the middle of what is actually on screen.
+        _draw_reference_line(ax, np.median(y) if reference is None else reference,
+                             reference_label)
 
     _attach_hover(scatter, names)
     _attach_click(fig, scatter, shown, df, chart_stats)
 
     fig.tight_layout()
     plt.show(block=True)
+
+
+def _scale_value_axis(ax, x):
+    """Put transfer value on a symlog axis with readable money labels."""
+    if np.nanmax(x) > VALUE_LINTHRESH * 10:
+        ax.set_xscale('symlog', linthresh=VALUE_LINTHRESH)
+    ax.xaxis.set_major_formatter(FuncFormatter(_money))
+
+
+def _money(value, _pos=None):
+    """120000000 -> '120M'. Axis ticks, so brevity beats precision."""
+    value = float(value)
+    for scale, suffix in ((1e9, 'B'), (1e6, 'M'), (1e3, 'K')):
+        if abs(value) >= scale:
+            trimmed = value / scale
+            places = 0 if abs(trimmed) >= 10 else 1
+            return f'{trimmed:.{places}f}{suffix}'
+    return f'{value:.0f}'
 
 
 def _points_to_plot(total):
@@ -88,12 +119,58 @@ def _set_score_limits(ax, y, reference=None):
     ax.set_ylim(low - span * Y_PADDING, high + span * Y_PADDING)
 
 
-def _draw_reference_line(ax, reference):
-    """Mark a reference score, e.g. the league or dataset average."""
+# Price bands used to trace what a given fee normally buys. Quantile-based, so
+# each band holds the same number of players however the prices are spread.
+PRICE_BANDS = 12
+MIN_PER_BAND = 8
+
+
+def _draw_value_curve(ax, x, y):
+    """Trace the median score at each price level. Returns True if drawn.
+
+    A flat line at the population average is useless here: the plot only shows
+    the strongest half of the shortlist, so a whole-population reference sits
+    at or below the bottom of the cloud every time. What the chart is for is
+    spotting players who beat their price, so the reference is what that price
+    normally buys -- above the curve is good value, below it is not.
+
+    Medians per price band rather than a fitted line, because transfer values
+    span orders of magnitude and cluster hard at zero.
+    """
+    finite = np.isfinite(x) & np.isfinite(y)
+    x, y = x[finite], y[finite]
+    if len(x) < PRICE_BANDS * MIN_PER_BAND or np.ptp(x) == 0:
+        return False
+
+    edges = np.unique(np.quantile(x, np.linspace(0, 1, PRICE_BANDS + 1)))
+    if len(edges) < 3:
+        return False
+    centres, medians = [], []
+    for lo, hi in zip(edges[:-1], edges[1:]):
+        band = (x >= lo) & (x <= hi)
+        if band.sum() >= MIN_PER_BAND:
+            centres.append(np.median(x[band]))
+            medians.append(np.median(y[band]))
+    if len(centres) < 3:
+        return False
+
+    ax.plot(centres, medians, color=FOREGROUND, linestyle='--',
+            linewidth=1.4, alpha=0.85, zorder=4,
+            label='typical for this price')
+    legend = ax.legend(loc='upper left', frameon=True, fontsize=8)
+    legend.get_frame().set(facecolor=BACKGROUND, edgecolor=FOREGROUND,
+                           alpha=0.75)
+    for text in legend.get_texts():
+        text.set_color(FOREGROUND)
+    return True
+
+
+def _draw_reference_line(ax, reference, label='median'):
+    """Flat fallback when the prices cannot support a curve."""
     if reference is not None and np.isfinite(reference):
         ax.axhline(reference, color=FOREGROUND, linestyle='--',
                    linewidth=0.8, alpha=0.5)
-        ax.annotate('average', (0.99, reference), xycoords=('axes fraction', 'data'),
+        ax.annotate(label, (0.99, reference), xycoords=('axes fraction', 'data'),
                     ha='right', va='bottom', color=FOREGROUND, alpha=0.6, fontsize=8)
 
 
