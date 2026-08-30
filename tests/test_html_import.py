@@ -239,3 +239,30 @@ def test_folder_conversion_keeps_squad_exports_and_skips_the_rest(tmp_path, caps
         sorted(tmp_path.glob('*.html')), tmp_path / 'data')
     assert [p.name for p in written] == ['Keepers.csv']
     assert 'squad export' in capsys.readouterr().out
+
+
+def test_read_export_accepts_an_in_memory_upload(tmp_path):
+    """An upload never touches disk, so it must go through the same parser."""
+    import io
+    source = _write(tmp_path, 'Keepers', ROWS)
+    buffer = io.BytesIO(source.read_bytes())
+    buffer.name = 'Keepers.html'
+    table, count = html_import.read_export(buffer)
+    assert count == 1
+    assert list(table['Name']) == ['Patryk Stępień', 'Kerim Tüfekçi', 'Ângelo Sá']
+
+
+def test_upload_errors_name_the_file_not_the_buffer(tmp_path):
+    import io
+    buffer = io.BytesIO(b'<html><body>nothing here</body></html>')
+    buffer.name = 'scouting.html'
+    with pytest.raises(ConversionError, match='scouting.html'):
+        html_import.read_export(buffer)
+
+
+def test_clean_table_is_reusable_without_writing_anything(tmp_path):
+    source = _write(tmp_path, 'Keepers', ROWS, footer_inside_table=True)
+    table, _ = html_import.read_export(source)
+    cleaned = html_import.clean_table(table, 'Keepers.html', verbose=False)
+    assert len(cleaned) == len(ROWS)
+    assert not list(tmp_path.glob('*.csv')), 'clean_table must not write'

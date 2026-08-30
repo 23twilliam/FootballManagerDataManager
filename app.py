@@ -7,6 +7,9 @@ live in analysis/ and visualisation/shortlist.py, shared with the CLI.
 """
 from __future__ import annotations
 
+import io
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -14,6 +17,7 @@ import streamlit as st
 
 from analysis import ca_model
 from config import NAME_COL, VALUE_COL, stats_dict
+from utils import html_import
 from visualisation.shortlist import money, points_to_plot, value_curve
 
 CHART_STATS = 12
@@ -34,6 +38,11 @@ SORTS = {
     'Most underrated (uncorrected)': ca_model.RESIDUAL_COL,
     'Best relative to their league': 'pred_above_league',
 }
+
+# Sorts that need a real CA to mean anything. A scouted player has none, so
+# these are hidden when the data came from an upload.
+NEEDS_ACTUAL_CA = {'Most underrated for their level',
+                   'Most underrated (uncorrected)'}
 
 st.set_page_config(page_title='FM Data Hub', page_icon='⚽', layout='wide')
 
@@ -91,6 +100,30 @@ def budget_steps(ceiling: float) -> list[float]:
     if len(steps) > 2 and steps[-1] < steps[-2] * 1.15:
         steps.pop(-2)
     return steps
+
+
+@st.cache_data(show_spinner='Reading and scoring your export...')
+def score_upload(raw: bytes, filename: str, position: str,
+                 min_minutes: int) -> pd.DataFrame:
+    """Parse an uploaded FM export and score it with a trained model.
+
+    Cached on the file's bytes, so re-running the script for a filter change
+    does not re-parse a 15MB export.
+    """
+    buffer = io.BytesIO(raw)
+    buffer.name = filename  # so any parse error names the file, not a BytesIO
+    table, _ = html_import.read_export(buffer)
+    table = html_import.clean_table(table, filename, verbose=False)
+    return ca_model.score_frame(table, position, min_minutes=min_minutes)
+
+
+def guess_position(filename: str, positions: list[str]) -> int:
+    """Index of the position whose name best matches the uploaded file."""
+    stem = Path(filename).stem.casefold().replace(' ', '').replace('_', '')
+    for index, name in enumerate(positions):
+        if name.casefold() in stem or stem in name.casefold():
+            return index
+    return 0
 
 
 def trained_positions() -> list[str]:
@@ -252,10 +285,45 @@ def main():
         return
 
     with st.sidebar:
+        st.header('Data')
+        upload = st.file_uploader(
+            'Score your own export', type=['html', 'htm'],
+            help='An FM squad view saved as HTML -- a scouting shortlist, say. '
+                 'CA is hidden in the game, so an export of players you do not '
+                 'own has no CA column; the model does not need one.')
+
+        if upload is None:
+            position = st.selectbox('Position', positions)
+            scored = load_scored(position)
+            meta = load_meta(position)
+            uploaded = False
+        else:
+            position = st.selectbox(
+                'Score with which position model?', positions,
+                index=guess_position(upload.name, positions),
+                help='Pick the model matching the players in the file. A '
+                     'striker scored by the goalkeeper model is meaningless.')
+            meta = load_meta(position)
+            trained_floor = meta.get('min_minutes', ca_model.MIN_MINUTES)
+            floor = st.number_input(
+                'Minimum minutes', min_value=0, max_value=5000,
+                value=int(trained_floor), step=100,
+                help=f'The model was trained on {trained_floor}+ minutes. Lower '
+                     f'it to see scouted players with less football behind '
+                     f'them, but their per-90 figures are noisier.')
+            try:
+                scored = score_upload(upload.getvalue(), upload.name,
+                                      position, int(floor))
+            except html_import.ConversionError as exc:
+                st.error(str(exc))
+                return
+            except (KeyError, ValueError) as exc:
+                st.error(f'Could not score that file: {exc}')
+                return
+            uploaded = True
+            st.success(f'{len(scored):,} players scored from {upload.name}')
+
         st.header('Filters')
-        position = st.selectbox('Position', positions)
-        scored = load_scored(position)
-        meta = load_meta(position)
 
         priced = scored[scored[VALUE_COL].notna()]
         ceiling = float(priced[VALUE_COL].max()) if not priced.empty else 0.0
@@ -265,12 +333,16 @@ def main():
             format_func=lambda v: 'Free only' if v == 0 else money(v),
             help='Players at or below this fee')
 
-        sort_label = st.radio('Rank by', list(SORTS), index=0)
+        choices = [s for s in SORTS
+                   if not (uploaded and s in NEEDS_ACTUAL_CA)]
+        sort_label = st.radio('Rank by', choices, index=0)
         nations = sorted(scored['Nation'].dropna().unique()) if 'Nation' in scored else []
         chosen = st.multiselect('Leagues (all if empty)', nations)
 
         min_ca = 0
-        if ca_model.TARGET in scored and scored[ca_model.TARGET].notna().any():
+        has_actual_ca = (not uploaded and ca_model.TARGET in scored
+                         and scored[ca_model.TARGET].notna().any())
+        if has_actual_ca:
             low = int(np.nanmin(scored[ca_model.TARGET]))
             high = int(np.nanmax(scored[ca_model.TARGET]))
             min_ca = st.slider('Minimum actual CA', low, high, low)
@@ -283,6 +355,16 @@ def main():
         st.caption(f"Predictions are unbiased read forwards, but do not filter "
                    f"on a `CA_pred` threshold — only ~63% of truly elite players "
                    f"clear their own mark.")
+        if uploaded:
+            known = int(scored[ca_model.TARGET].notna().sum())
+            st.caption(
+                (f'{known} of these players list a CA. '
+                 if known else 'None of these players list a CA, which is '
+                               'normal -- it is hidden in game. ')
+                + 'The underrated sorts are unavailable either way: they '
+                  'need out-of-fold predictions, and the model may have been '
+                  'trained on some of these players. Percentiles compare '
+                  f'them against every {position} in your data.')
 
     view = scored[scored[VALUE_COL].notna() & (scored[VALUE_COL] <= budget)]
     if chosen:

@@ -98,6 +98,28 @@ Position, budget, league and minimum-CA filters in the sidebar; the
 value-for-money scatter as the main panel; click a point for that player's
 percentile breakdown; the full ranking as a sortable table below.
 
+### Scoring an export you have not trained on
+
+The sidebar takes an HTML upload — a scouting shortlist, say — parses it in
+memory and scores it with whichever position model you pick. **CA is hidden in
+the game, so an export of players you do not own has no CA column, and the
+model does not need one:** it predicts from per-90 statistics and league
+strength, neither of which is CA.
+
+What changes for an upload:
+
+- The **underrated** sorts disappear. They compare a prediction with a real
+  CA and need out-of-fold predictions; neither is available here.
+- **Minimum minutes** becomes adjustable. Scouted players often have little
+  football behind them, and seeing them matters more than the per-90 noise —
+  but the noise is real, so you have to ask for it.
+- Percentiles still compare against every player of that position in `data/`,
+  not just the uploaded file, so the ranking means something.
+
+Pick the model that matches the file. A striker scored by the goalkeeper
+model is meaningless, so the position is guessed from the filename and can be
+overridden.
+
 ### The CLI
 
 Still the way to convert exports and train models.

@@ -481,3 +481,52 @@ def test_matching_versions_are_silent(strikers, capsys):
     capsys.readouterr()
     ca_model.load_model(strikers)
     assert 'WARNING' not in capsys.readouterr().out
+
+
+# --- scoring an upload -----------------------------------------------------
+
+def test_score_frame_matches_the_normal_path(strikers):
+    """An uploaded export must go through identical preparation."""
+    ca_model.train(strikers, verbose=False)
+    normal = ca_model.score_players(strikers, verbose=False).reset_index(drop=True)
+    raw = pd.read_csv(ca_model.DATA_DIR / f'{strikers}.csv')
+    uploaded = ca_model.score_frame(raw, strikers).reset_index(drop=True)
+    assert len(normal) == len(uploaded)
+    assert (normal[ca_model.PRED_COL] - uploaded[ca_model.PRED_COL]).abs().max() \
+        == pytest.approx(0.0, abs=1e-9)
+
+
+def test_score_frame_works_without_a_ca_column(strikers):
+    """CA is hidden in game, so a scouting export simply will not have it."""
+    ca_model.train(strikers, verbose=False)
+    raw = pd.read_csv(ca_model.DATA_DIR / f'{strikers}.csv').drop(columns=['CA'])
+    scored = ca_model.score_frame(raw, strikers)
+    assert scored[ca_model.PRED_COL].notna().all()
+    assert scored[ca_model.TARGET].isna().all()
+    assert 'pred_above_league' in scored.columns
+
+
+def test_score_frame_leaves_residuals_empty(strikers):
+    """Residuals measure the model against a real CA; there is not one."""
+    ca_model.train(strikers, verbose=False)
+    raw = pd.read_csv(ca_model.DATA_DIR / f'{strikers}.csv').drop(columns=['CA'])
+    scored = ca_model.score_frame(raw, strikers)
+    for column in (ca_model.RESIDUAL_COL, ca_model.ADJ_RESIDUAL_COL):
+        assert column in scored.columns, 'column must exist for shared table code'
+        assert scored[column].isna().all()
+
+
+def test_score_frame_honours_a_lower_minutes_floor(strikers):
+    ca_model.train(strikers, verbose=False)
+    raw = pd.read_csv(ca_model.DATA_DIR / f'{strikers}.csv')
+    strict = ca_model.score_frame(raw, strikers, min_minutes=2500)
+    loose = ca_model.score_frame(raw, strikers, min_minutes=0)
+    assert len(loose) > len(strict)
+
+
+def test_score_frame_predictions_stay_on_the_ca_scale(strikers):
+    ca_model.train(strikers, verbose=False)
+    raw = pd.read_csv(ca_model.DATA_DIR / f'{strikers}.csv').drop(columns=['CA'])
+    scored = ca_model.score_frame(raw, strikers)
+    low, high = ca_model.CA_RANGE
+    assert scored[ca_model.PRED_COL].between(low, high).all()

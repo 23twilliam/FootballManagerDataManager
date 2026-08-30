@@ -70,12 +70,17 @@ class AlreadyConvertedError(ConversionError):
 def read_export(path, encoding: str = 'utf-8', table: int = 0) -> pd.DataFrame:
     """Parse one FM HTML export into a DataFrame.
 
+    `path` may be a filename or an open file-like object, so an upload that
+    never touches disk goes through the same parser as a file on disk.
+
     `encoding` is passed explicitly because the export declares none; see the
     module docstring for what happens when the parser is left to guess.
     """
-    path = Path(path)
-    if not path.is_file():
-        raise ConversionError(f"No such file: {path}")
+    name = getattr(path, 'name', None) or str(path)
+    if not hasattr(path, 'read'):
+        path = Path(path)
+        if not path.is_file():
+            raise ConversionError(f"No such file: {path}")
 
     try:
         # flavor is pinned so a parse failure reports itself, rather than
@@ -90,11 +95,11 @@ def read_export(path, encoding: str = 'utf-8', table: int = 0) -> pd.DataFrame:
             f"{exc}. Try 'latin1', 'iso-8859-1' or 'cp1252' "
             "(lxml rejects the hyphenated 'latin-1').") from exc
     except ValueError as exc:
-        raise ConversionError(f"No HTML table found in {path.name}: {exc}") from exc
+        raise ConversionError(f"No HTML table found in {name}: {exc}") from exc
 
     if table >= len(tables):
         raise ConversionError(
-            f"{path.name} has {len(tables)} table(s); asked for index {table}")
+            f"{name} has {len(tables)} table(s); asked for index {table}")
     return tables[table], len(tables)
 
 
@@ -151,17 +156,31 @@ def convert(path, out_dir, encoding: str = 'utf-8', table: int = 0,
     df, table_count = read_export(path, encoding=encoding, table=table)
     if table_count > 1 and verbose:
         print(f"  note: {table_count} tables found, using index {table}")
+    rows_in = len(df)
 
+    df = clean_table(df, path.name, drop_last=drop_last, encoding=encoding,
+                     verbose=verbose)
+    rows_out = len(df)
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    df.to_csv(destination, index=False, encoding='utf-8')
+    if verbose:
+        print(f"  {rows_in} rows -> {rows_out} rows, {len(df.columns)} columns")
+        print(f"  wrote {destination}")
+    return destination
+
+
+def clean_table(df: pd.DataFrame, name: str = 'export', drop_last: int = 0,
+                encoding: str = 'utf-8', verbose: bool = True) -> pd.DataFrame:
+    """Validate and strip a parsed export. Shared by the CLI and uploads."""
     missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
     if missing:
         # Not every HTML file in a Documents folder is a squad export -- a
         # coefficient table or a league summary would otherwise be written to
         # data/ and show up as a bogus position.
         raise NotASquadExportError(
-            f"{path.name} is missing {', '.join(missing)}, so it does not look "
+            f"{name} is missing {', '.join(missing)}, so it does not look "
             "like a squad export")
-
-    rows_in = len(df)
 
     mangled = detect_mojibake(df)
     if mangled and verbose:
@@ -191,14 +210,8 @@ def convert(path, out_dir, encoding: str = 'utf-8', table: int = 0,
             print(f"  dropped {drop_last} trailing row(s) as requested")
 
     if df.empty:
-        raise ConversionError(f"{path.name}: no rows left after cleaning")
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-    df.to_csv(destination, index=False, encoding='utf-8')
-    if verbose:
-        print(f"  {rows_in} rows -> {len(df)} rows, {len(df.columns)} columns")
-        print(f"  wrote {destination}")
-    return destination
+        raise ConversionError(f"{name}: no rows left after cleaning")
+    return df
 
 
 def convert_all(paths, out_dir, **kwargs) -> tuple[list[Path], int]:

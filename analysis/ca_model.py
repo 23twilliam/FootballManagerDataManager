@@ -167,24 +167,42 @@ def load_position(position: str, min_minutes: int = MIN_MINUTES,
                   league_effects: bool = True,
                   known_leagues: list[str] | None = None,
                   verbose: bool = True) -> PositionData:
-    """Load one position's CSV, filter it, and build the feature matrix.
-
-    Rows whose CA is unknown are kept. They cannot be trained on, but they are
-    exactly the players worth predicting -- an unscouted player has stats but no
-    rating, which is the case the model earns its keep in.
-    """
+    """Read one position's CSV from data/ and prepare it for the model."""
     positions = available_positions()
     if position not in positions:
         raise KeyError(
             f"No data for {position!r}. Expected {DATA_DIR / (position + '.csv')}. "
             f"Available: {sorted(positions) or 'none -- data/ is empty or missing'}")
+    return prepare_frame(pd.read_csv(positions[position]), position,
+                         min_minutes=min_minutes,
+                         league_interactions=league_interactions,
+                         league_effects=league_effects,
+                         known_leagues=known_leagues, verbose=verbose)
 
-    df = pd.read_csv(positions[position])
+
+def prepare_frame(df: pd.DataFrame, position: str,
+                  min_minutes: int = MIN_MINUTES,
+                  league_interactions: bool = False,
+                  league_effects: bool = True,
+                  known_leagues: list[str] | None = None,
+                  verbose: bool = True) -> PositionData:
+    """Filter a raw export frame and build the feature matrix from it.
+
+    Separate from `load_position` so a frame that never came from data/ -- a
+    scouting export a user has just uploaded, say -- goes through exactly the
+    same filtering, league lookup and feature construction as the training data.
+
+    Rows whose CA is unknown are kept. They cannot be trained on, but they are
+    exactly the players worth predicting: a scouted player has statistics and no
+    rating, because CA is hidden in the game.
+    """
+    df = df.copy()
     total = len(df)
 
     for required in ('Division', 'Mins'):
         if required not in df.columns:
             raise KeyError(f"{position}: required column {required!r} is missing")
+
 
     # Coerce every known stat, not just the ones the model reads. The feature
     # matrix was always converted, but df went out to callers with raw strings
@@ -520,6 +538,43 @@ def shrinkage_curve(ca: pd.Series, residual: pd.Series):
     model = IsotonicRegression(increasing=False, out_of_bounds='clip')
     model.fit(ca.to_numpy(), residual.to_numpy())
     return model
+
+
+def score_frame(df: pd.DataFrame, position: str, min_minutes: int | None = None,
+                verbose: bool = False) -> pd.DataFrame:
+    """Score an export that is not in data/ using a position's saved model.
+
+    For a scouting export, where CA is hidden and so absent from the file. Adds
+    CA_pred, `score` and pred_above_league. It cannot add the residual columns:
+    those measure the model against a player's real CA, and there is none.
+
+    min_minutes overrides the threshold the model was trained with. Scouted
+    players often have few minutes, and seeing them at all matters more than the
+    per-90 noise -- but the noise is real, so the caller has to ask for it.
+    """
+    pipeline, meta = load_model(position)
+    data = prepare_frame(
+        df, position,
+        min_minutes=meta.get('min_minutes', MIN_MINUTES)
+        if min_minutes is None else min_minutes,
+        league_interactions=meta.get('league_interactions', False),
+        league_effects=meta.get('league_effects', False),
+        known_leagues=meta.get('known_leagues'),
+        verbose=verbose)
+
+    X = data.X.reindex(columns=meta['features'])
+    out = data.df.copy()
+    out[PRED_COL] = np.clip(pipeline.predict(X), *CA_RANGE)
+    out[SCORE_COL] = out[PRED_COL]
+    out['pred_above_league'] = out[PRED_COL] - out['league_avg_ca']
+
+    # Present but empty, so a caller can hand this frame to the same table and
+    # chart code that serves the trained positions.
+    for column in (RESIDUAL_COL, ADJ_RESIDUAL_COL):
+        out[column] = np.nan
+    if TARGET not in out.columns:
+        out[TARGET] = np.nan
+    return out
 
 
 def _debiased_residual(out: pd.DataFrame) -> pd.Series:
