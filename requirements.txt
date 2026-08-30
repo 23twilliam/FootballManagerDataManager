@@ -20,5 +20,9 @@ joblib>=1.5.3
 # this line means retraining: python main.py train --all
 scikit-learn>=1.9.0,<1.10
 
+# Streamlit front end (app.py). The CLI does not need these.
+streamlit>=1.62.0
+plotly>=7.0.0
+
 # Testing
 pytest>=9.1.1

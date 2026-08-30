@@ -84,6 +84,24 @@ target — players without it are still scored, just not trained on. `Name` and
 
 ## Use
 
+### The app
+
+```bash
+python -m streamlit run app.py
+```
+
+Use `python -m streamlit`, not bare `streamlit` — pip installs
+`streamlit.exe` into a Scripts directory that is not on PATH by default
+on this machine, so the bare command fails with `CommandNotFoundException`.
+
+Position, budget, league and minimum-CA filters in the sidebar; the
+value-for-money scatter as the main panel; click a point for that player's
+percentile breakdown; the full ranking as a sortable table below.
+
+### The CLI
+
+Still the way to convert exports and train models.
+
 ```bash
 python main.py positions
 ```
@@ -132,6 +150,15 @@ when you group by the answer. See *Reading a prediction* below.
 
 Hover a point for a name; click for a percentile breakdown of the stats that
 most influenced the model.
+
+Every bar reads the same way round: **higher is better**. Stats where a lower
+number is the better one — possession lost, headers lost, minutes per goal —
+are flipped and labelled *(fewer)*, so a player who rarely gives the ball away
+shows as a strength rather than a red bar at the 10th percentile. The set is
+declared in `config.LOWER_IS_BETTER` and cannot be inferred: possession lost
+correlates *positively* with CA (+0.166 across the nine positions) because
+better players have the ball more, so a data-derived direction would rank
+giving it away as a virtue.
 
 The dashed line is **what that fee normally buys** — a rolling median of
 predicted ability across players sorted by price. Players above it beat their
@@ -246,14 +273,16 @@ name says so.
 
 | Path | Purpose |
 |---|---|
-| `main.py` | CLI: `convert`, `positions`, `compare`, `train`, `rank` |
+| `app.py` | Streamlit front end |
+| `main.py` | CLI: `convert`, `positions`, `audit`, `compare`, `train`, `rank` |
 | `analysis/ca_model.py` | Loading, training, persistence, scoring |
 | `leagues.py` | League strengths, and division → (nation, tier) mapping |
 | `config.py` | Column names and display labels |
 | `utils/preprocessing.py` | Unit stripping and numeric coercion |
 | `utils/value_conversion.py` | Transfer-value string parsing |
 | `utils/html_import.py` | FM HTML export → CSV |
-| `visualisation/plotter.py` | Value-for-money scatter plot |
+| `visualisation/shortlist.py` | Chart maths, shared by both front ends |
+| `visualisation/plotter.py` | matplotlib scatter, used by `main.py rank` |
 | `visualisation/percentile_chart.py` | Per-player percentile breakdown |
 
 ### Modelling options

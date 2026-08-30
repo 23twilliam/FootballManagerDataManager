@@ -7,9 +7,8 @@ had drifted out of sync with the analyser they were paired with.
 """
 import math
 
-from scipy import stats as scipy_stats
-
 from config import stats_dict
+from visualisation.shortlist import percentile_table
 from visualisation.style import BAR_COLOUR, FOREGROUND, new_dark_figure, plt
 
 
@@ -29,29 +28,22 @@ def show_percentile_chart(df, player, stats, name):
 
     fig, ax = new_dark_figure()
 
-    for stat in charted:
-        percentile = _percentile(df[stat], player[stat])
-        label = stats_dict.get(stat, stat)
-        if percentile is None:
+    for row in percentile_table(df, player, charted).itertuples():
+        label = stats_dict.get(row.stat, row.stat)
+        if row.inverted:
+            label += '\n(fewer)'
+        if row.percentile is None or row.percentile != row.percentile:
             # Missing value: leave a visible gap rather than implying zero.
             ax.bar(label, 0, color='none')
             continue
-        ax.bar(label, percentile, color=BAR_COLOUR)
-        ax.annotate(math.trunc(percentile), (label, percentile),
+        ax.bar(label, row.percentile, color=BAR_COLOUR)
+        ax.annotate(math.trunc(row.percentile), (label, row.percentile),
                     ha='center', va='bottom', color=FOREGROUND, fontsize=12)
 
     ax.set_yticks(range(0, 101, 10))
     ax.set_ylim(0, 105)
-    ax.set_ylabel('Percentile', color=FOREGROUND)
+    ax.set_ylabel('Percentile (higher is better)', color=FOREGROUND)
     ax.set_title(name, color=FOREGROUND)
     plt.setp(ax.get_xticklabels(), rotation=90)
     fig.tight_layout()
     plt.show(block=True)
-
-
-def _percentile(population, value):
-    """Percentile rank of `value` within `population`, or None if unavailable."""
-    clean = population.dropna()
-    if clean.empty or value is None or value != value:  # NaN check
-        return None
-    return scipy_stats.percentileofscore(clean, value, kind='rank')

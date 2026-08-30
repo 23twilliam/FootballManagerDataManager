@@ -31,7 +31,7 @@ from sklearn.model_selection import (KFold, cross_val_predict,
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
-from config import VALUE_COL
+from config import NUMERIC_COLUMNS, VALUE_COL
 from leagues import (LOG_COEF_REFERENCE, nation_for_division,
                      strength_for_division, tier_for_division)
 from utils.preprocessing import to_numeric
@@ -185,6 +185,15 @@ def load_position(position: str, min_minutes: int = MIN_MINUTES,
     for required in ('Division', 'Mins'):
         if required not in df.columns:
             raise KeyError(f"{position}: required column {required!r} is missing")
+
+    # Coerce every known stat, not just the ones the model reads. The feature
+    # matrix was always converted, but df went out to callers with raw strings
+    # like '3.20', '85%' and '13.5km' -- and percentile charts then compared
+    # those lexicographically, which put a possession-lost figure of 3.20 at
+    # the 92nd percentile when it belongs at the 11th.
+    for column in NUMERIC_COLUMNS:
+        if column in df.columns:
+            df[column] = to_numeric(df[column])
 
     # --- sample-size filter -------------------------------------------------
     df['Mins'] = to_numeric(df['Mins'])

@@ -67,6 +67,26 @@ stats_dict = {'xGP/90': 'Expected Goals Prevented per 90',
               }
 
 
+# Stats where a LOWER number is the better one. Percentile charts flip these,
+# so a player who rarely loses the ball reads as strong rather than as a red bar
+# at the 10th percentile.
+#
+# This cannot be inferred from the data. Possession Lost per 90 correlates
+# *positively* with CA (+0.166 across the nine positions) because better players
+# have the ball more -- so a correlation-derived direction would rank losing it
+# as a virtue. Whether an event is good or bad is a football fact, not a
+# statistical one, and it is stated here.
+#
+# Deliberately conservative: only stats whose direction is unambiguous. Volume
+# stats like Clearances or Aerial Attempts are not "bad", they just mean the
+# player is under pressure, so they are left alone.
+LOWER_IS_BETTER = frozenset({
+    'Poss Lost/90',    # possession given away
+    'Hdrs L/90',       # headers lost
+    'Mins/Gl',         # minutes per goal -- fewer means more prolific
+})
+
+
 # Derived by preprocessing rather than read from the CSV.
 DERIVED_COLS = ('SvRatio',)
 
